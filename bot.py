@@ -5,7 +5,7 @@ import httpx
 from aiohttp import web
 from groq import AsyncGroq
 from telegram import Update
-from telegram.constants import ChatAction
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -31,9 +31,9 @@ http_client = httpx.AsyncClient(timeout=20.0)
 
 # System prompt for multilingual, accurate & fast responses
 SYSTEM_PROMPT = (
-    "You are a versatile, highly intelligent, and ultra-fast AI assistant. "
-    "You can understand and respond in any language requested by the user, including English, Hindi, Hinglish, etc. "
-    "Provide well-formatted, precise, and clean answers with bullet points and bold headers where appropriate."
+    "You are an ultra-fast, intelligent, and accurate AI assistant. "
+    "You understand and respond perfectly in any language requested, including English, Hindi, and Hinglish. "
+    "Give well-structured, clear answers with bold headings and bullet points where needed."
 )
 
 def split_message(text, chunk_size=4000):
@@ -63,7 +63,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<i>Just type your prompt or question below, and I'll find the best answer for you!</i>"
         f"{FOOTER_TEXT}"
     )
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
+    await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_prompt = update.message.text.strip()
@@ -73,10 +73,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Typing status action
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-    # English searching animation message
+    # Searching animation message
     status_msg = await update.message.reply_text(
         "⚡ <i>Generating response... Please wait a moment.</i>",
-        parse_mode="HTML"
+        parse_mode=ParseMode.HTML
     )
 
     try:
@@ -85,35 +85,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             temperature=0.7,
             max_tokens=2048,
         )
         ai_reply = chat_completion.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Groq API Error: {e}")
-        ai_reply = f"⚠️ <b>Error processing request:</b> {str(e)}"
+        ai_reply = f"⚠️ Error processing request: {str(e)}"
 
     full_response = f"{ai_reply}{FOOTER_TEXT}"
     chunks = split_message(full_response)
 
-    # First chunk replaces the searching status message
+    # Edit status message with first chunk
     if chunks:
         try:
-            await status_msg.edit_text(chunks[0], parse_mode="Markdown")
+            await status_msg.edit_text(chunks[0], parse_mode=ParseMode.HTML)
         except Exception:
-            await status_msg.edit_text(chunks[0])
+            try:
+                await status_msg.edit_text(chunks[0], parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await status_msg.edit_text(chunks[0])
 
-    # Send remaining chunks if message is long
+    # Send remaining chunks if message exceeds limit
     for chunk in chunks[1:]:
         try:
-            await update.message.reply_text(chunk, parse_mode="Markdown")
+            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
         except Exception:
-            await update.message.reply_text(chunk)
+            try:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await update.message.reply_text(chunk)
 
 # --- RENDER WEB SERVER (PORT BINDING & KEEP-ALIVE) ---
 async def handle_health_check(request):
-    return web.Response(text="Groq AI Bot is running 24/7!")
+    return web.Response(text="Groq AI Bot is active 24/7!")
 
 async def start_web_server():
     server = web.Application()
